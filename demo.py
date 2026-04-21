@@ -2,6 +2,7 @@ import time
 import numpy as np
 import pandas as pd
 import joblib
+import statistics
 
 PASSWORD = ".tie5Roanl"
 
@@ -12,49 +13,73 @@ print("\n1. Collect my typing samples")
 print("2. Authenticate me")
 mode = input("\nChoose mode (1 or 2): ").strip()
 
-# ── Capture: user types password, we measure total time + char count ──
+# ── Capture ────────────────────────────────────────────────
 def capture_typing():
     print(f"\nType exactly: {PASSWORD}")
     print("Press Enter when done.\n")
 
-    start = time.perf_counter()
-    typed = input()
-    end   = time.perf_counter()
+    while True:
+        start = time.perf_counter()
+        typed = input()
+        end   = time.perf_counter()
+        if typed.strip():        # only return if something was actually typed
+            return typed, start, end
+        # silently retry if empty
 
-    return typed, start, end
+# ── Timing range from personal samples ────────────────────
+MIN_TIME = None
+MAX_TIME = None
 
-# ── Feature extraction from timed input ───────────────────
+def load_timing_range():
+    global MIN_TIME, MAX_TIME
+    try:
+        df         = pd.read_csv("data/my_features.csv")
+        my_samples = df[df["label"] == 1]
+        times      = my_samples["dd_mean"].values * 9
+        mean       = times.mean()
+        std        = times.std()
+        MIN_TIME   = max(0.5, mean - 2.5 * std)
+        MAX_TIME   = mean + 2.5 * std
+    except Exception:
+        MIN_TIME = 1.0
+        MAX_TIME = 30.0
+
+# ── Feature extraction ─────────────────────────────────────
 def extract_features(typed, start, end):
-    typed = typed.strip()
-    n     = len(typed)
-    print(f"  [debug] chars typed: {n}, time: {end-start:.3f}s")
+    typed      = typed.strip()
+    n          = len(typed)
+    total_time = end - start
+
+    print(f"  [debug] chars typed: {n}, time: {total_time:.3f}s")
 
     if n != len(PASSWORD):
-        print(f"  [!] Expected {len(PASSWORD)} chars, got {n} — type the password exactly")
         return None
 
-    total_time = end - start
-    avg_dd     = total_time / (n - 1)   # average inter-key interval
+    if typed != PASSWORD:
+        return None
 
-    # We only have total time, so we synthesize consistent features
-    # All 9 dd slots get the average; std/range will be 0 but consistent
-    dd = np.array([avg_dd] * 9)
+    if total_time < MIN_TIME or total_time > MAX_TIME:
+        return "timing_reject"
+
+    avg_dd = total_time / (n - 1)
+    dd     = np.array([avg_dd] * 9)
 
     features = [
-        avg_dd, 0.0, avg_dd, avg_dd, 0.0,   # h_ slots (hold — unavailable)
-        avg_dd, 0.0, avg_dd, avg_dd, 0.0,   # ud_ slots
+        avg_dd, 0.0, avg_dd, avg_dd, 0.0,
+        avg_dd, 0.0, avg_dd, avg_dd, 0.0,
         dd.mean(), dd.std(), dd.min(), dd.max(), dd.max()-dd.min(),
-        1.0,   # h_ud_ratio
-        1.0    # h_dd_ratio
+        1.0,
+        1.0
     ]
     return features
 
 # ── MODE 1: Collect samples ────────────────────────────────
 if mode == "1":
+    load_timing_range()
     samples   = []
     n_samples = 20
     print(f"\nYou will type the password {n_samples} times.")
-    print("Try to type at your natural pace each time.\n")
+    print("Take a short break between each attempt.\n")
 
     attempt = 0
     while len(samples) < n_samples:
@@ -63,8 +88,8 @@ if mode == "1":
         typed, start, end = capture_typing()
         features = extract_features(typed, start, end)
 
-        if features is None:
-            print("Try again\n")
+        if features is None or features == "timing_reject":
+            print("Could not record — try again\n")
             continue
 
         samples.append(features)
@@ -91,11 +116,16 @@ if mode == "1":
 
 # ── MODE 2: Authenticate ───────────────────────────────────
 elif mode == "2":
+    load_timing_range()
+
     typed, start, end = capture_typing()
     features          = extract_features(typed, start, end)
 
-    if features is None:
-        print("Could not extract features — try again")
+    if features is None or features == "timing_reject":
+        print("\n" + "=" * 45)
+        print("  Result: Rejected ❌")
+        print("  You are not the authorised user.")
+        print("=" * 45)
     else:
         X          = np.array(features).reshape(1, -1)
         scaler     = joblib.load("data/my_scaler.pkl")
@@ -110,5 +140,5 @@ elif mode == "2":
             print("  Result: Authenticated ✅")
         else:
             print("  Result: Rejected ❌")
-        print(f"  Confidence: {confidence:.2%}")
+            print("  You are not the authorised user.")
         print("=" * 45)
