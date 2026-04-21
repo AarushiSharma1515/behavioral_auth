@@ -1,0 +1,16 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# Trained model files
+data/my_scaler.pkl
+data/my_models.pkl
+data/my_features.csv
+
+# OS files
+Thumbs.db
+.DS_Store
