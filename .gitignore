@@ -14,3 +14,5 @@ data/my_features.csv
 # OS files
 Thumbs.db
 .DS_Store
+
+gitignore.txt
